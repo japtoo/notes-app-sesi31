@@ -15,76 +15,110 @@ env:
 
 jobs:
   lint:
-    name: Lint ESLint
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
-      - run: npm ci
-      - run: npm run lint
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Run ESLint
+        run: npm run lint
 
   unit-test:
-    name: Unit Test Jest
     runs-on: ubuntu-latest
+    needs: lint
+
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
-      - run: npm ci
-      - run: npm test
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Run Unit Test
+        run: npm test
 
   dependency-audit:
-    name: Dependency Audit
     runs-on: ubuntu-latest
+    needs: unit-test
+
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
-      - run: npm ci
-      - run: npm audit --audit-level=moderate
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Run npm audit
+        run: npm audit --audit-level=moderate
 
   sonarqube-scan:
-    name: SonarQube Scan
     runs-on: ubuntu-latest
-    needs: [lint, unit-test, dependency-audit]
+    needs: dependency-audit
+
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: actions/setup-node@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
-      - run: npm ci
-      - run: npm test
-      - name: Run SonarQube scan
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Generate Coverage
+        run: npm test
+
+      - name: SonarQube Scan
         uses: SonarSource/sonarqube-scan-action@v5
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
 
   docker-build-push:
-    name: Docker Build and Push
     runs-on: ubuntu-latest
     needs: sonarqube-scan
-    steps:
-      - uses: actions/checkout@v4
-      - uses: docker/setup-buildx-action@v3
 
-      - name: Login to Docker Hub
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login Docker Hub
         uses: docker/login-action@v3
         with:
           username: japtoo
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Build and push Docker image
+      - name: Build and Push Docker Image
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -94,13 +128,17 @@ jobs:
             japtoo/notes-app-sesi31:${{ github.sha }}
 
   k6-smoke-test:
-    name: k6 Smoke Test
     runs-on: ubuntu-latest
     needs: docker-build-push
-    steps:
-      - uses: actions/checkout@v4
 
-      - name: Run application container
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Pull Docker Image
+        run: docker pull japtoo/notes-app-sesi31:${{ github.sha }}
+
+      - name: Run App Container
         run: |
           docker run -d --name notes-app -p 3000:3000 japtoo/notes-app-sesi31:${{ github.sha }}
           sleep 10
@@ -109,9 +147,9 @@ jobs:
       - name: Setup k6
         uses: grafana/setup-k6-action@v1
 
-      - name: Run k6 smoke test
+      - name: Run k6 Smoke Test
         run: SMOKE=true BASE_URL=http://localhost:3000 npm run k6
 
-      - name: Show container logs
+      - name: Container Logs
         if: always()
         run: docker logs notes-app
